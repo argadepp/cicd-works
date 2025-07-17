@@ -4,25 +4,21 @@ import os
 
 async def main():
     async with dagger.Connection() as client:
-        # Set registry auth using environment
         username = "argadepp"
-        password = os.getenv("GHCR_PAT")
-
-        source = client.host().directory(".", exclude=[".git", "__pycache__"])
+        password = client.set_secret("ghcr_password", os.getenv("GHCR_TOKEN"))
+        
+        src = client.host().directory(".", exclude=[".git", ".github"])
 
         ctr = (
             client.container()
             .from_("python:3.11-slim")
-            .with_directory("/app", source)
+            .with_directory("/app", src)
             .with_workdir("/app")
             .with_exec(["pip", "install", "-r", "requirements.txt"])
         )
 
-        # Define image name
-        image_ref = f"ghcr.io/{username}/cicd-works:latest"
+        image_ref = f"ghcr.io/{os.getenv('GHCR_USERNAME')}/myapp:latest"
 
-        # Push image
         await ctr.with_registry_auth("ghcr.io", username, password).publish(image_ref)
 
-if __name__ == "__main__":
-    anyio.run(main)
+anyio.run(main)
