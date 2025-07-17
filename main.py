@@ -1,4 +1,5 @@
 import dagger
+import anyio
 
 async def main():
     async with dagger.Connection() as client:
@@ -15,4 +16,5 @@ async def main():
 
         await container.exit_code()
 
-dagger.run(main)
+if __name__ == "__main__":
+    anyio.run(main)
