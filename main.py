@@ -2,41 +2,27 @@ import dagger
 import anyio
 import os
 
-# Replace with your GitHub username and repo/image name
-GITHUB_USERNAME = "argadepp"
-IMAGE_NAME = "cicd-works"
-TAG = "latest"
-GHCR_PAT = os.getenv("GHCR_PAT")  # Must be set in env or GitHub Actions secrets
-
 async def main():
     async with dagger.Connection() as client:
-        # Load current directory into Dagger filesystem (excluding Git files)
-        src = client.host().directory(".", exclude=[".git", "__pycache__"])
+        # Set registry auth using environment
+        username = "argadepp"
+        password = os.getenv("GHCR_PAT")
 
-        # Create container from Python base image
-        container = (
+        source = client.host().directory(".", exclude=[".git", "__pycache__"])
+
+        ctr = (
             client.container()
             .from_("python:3.11-slim")
-            .with_directory("/app", src)
+            .with_directory("/app", source)
             .with_workdir("/app")
+            .with_exec(["pip", "install", "-r", "requirements.txt"])
         )
 
-        # Optionally install Python dependencies
-        if os.path.exists("requirements.txt"):
-            container = container.with_exec(["pip", "install", "-r", "requirements.txt"])
+        # Define image name
+        image_ref = f"ghcr.io/{username}/cicd-works:latest"
 
-        # Publish image to GHCR
-        image_ref = f"ghcr.io/{GITHUB_USERNAME}/{IMAGE_NAME}:{TAG}"
-        await container.publish(
-            address=image_ref,
-            registry_auth=dagger.RegistryAuth(
-                address="ghcr.io",
-                username=GITHUB_USERNAME,
-                password=GHCR_PAT,
-            ),
-        )
-
-        print(f"✅ Image pushed: {image_ref}")
+        # Push image
+        await ctr.with_registry_auth("ghcr.io", username, password).publish(image_ref)
 
 if __name__ == "__main__":
     anyio.run(main)
