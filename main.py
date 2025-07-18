@@ -4,8 +4,8 @@ import os
 
 async def main():
     async with dagger.Connection() as client:
-        username = "argadepp"
-        password = client.set_secret("ghcr_password", os.getenv("GHCR_TOKEN"))
+        username = client.set_secret("ghcr_username", os.getenv("GHCR_USERNAME"))
+        password = client.set_secret("ghcr_password", os.getenv("GHCR_PAT"))
         
         src = client.host().directory(".", exclude=[".git", ".github"])
 
