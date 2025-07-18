@@ -26,5 +26,6 @@ jobs:
 
       - name: Run Dagger pipeline
         env:
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}  # You already added this
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_PAT: ${{ secrets.GHCR_PAt }} # You already added this
         run: python3 main.py
