@@ -1,0 +1,53 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        DEPLOY_DIR = '/var/jenkins_home/deploy'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate website') {
+            steps {
+                sh '''
+                    set -eu
+                    test -f nginx-demo/site/index.html
+                    grep -qi '<html' nginx-demo/site/index.html
+                    echo "Static site validation passed."
+                '''
+            }
+        }
+
+        stage('Deploy to local Nginx') {
+            steps {
+                sh '''
+                    set -eu
+                    mkdir -p "$DEPLOY_DIR"
+                    find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+                    cp -a nginx-demo/site/. "$DEPLOY_DIR"/
+                    test -f "$DEPLOY_DIR/index.html"
+                    echo "Files deployed to shared Nginx document root."
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment successful. Open http://localhost:8081'
+        }
+        failure {
+            echo 'Pipeline failed. Review the stage logs above.'
+        }
+    }
+}
