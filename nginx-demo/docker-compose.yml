@@ -1,0 +1,23 @@
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk21
+    container_name: cicd-demo-jenkins
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./deploy:/var/jenkins_home/deploy
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: cicd-demo-nginx
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - ./deploy:/usr/share/nginx/html:ro
+
+volumes:
+  jenkins_home:
