@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-demo-app
+  namespace: demo
+  labels:
+    app: vault-demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault-demo-app
+  template:
+    metadata:
+      labels:
+        app: vault-demo-app
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "demo-app"
+        vault.hashicorp.com/agent-inject-secret-db-creds: "secret/data/demo/database"
+        vault.hashicorp.com/agent-inject-template-db-creds: |
+          {{- with secret "secret/data/demo/database" -}}
+          username={{ .Data.data.username }}
+          password={{ .Data.data.password }}
+          {{- end }}
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+    spec:
+      serviceAccountName: demo-app-sa
+      containers:
+        - name: app
+          image: ghcr.io/argadepp/vault-demo-app:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: VAULT_SECRET_FILE
+              value: /vault/secrets/db-creds
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
