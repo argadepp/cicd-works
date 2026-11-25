@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-auth-demo
+  namespace: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-auth-demo
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: vault-auth-demo}
+  template:
+    metadata:
+      labels: {app: vault-auth-demo}
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "vault-auth-demo"
+        vault.hashicorp.com/agent-inject-secret-db-creds: "database/creds/app-role"
+        vault.hashicorp.com/agent-inject-template-db-creds: |
+          {{- with secret "database/creds/app-role" -}}
+          {"username":"{{ .Data.username }}","password":"{{ .Data.password }}","lease_id":"{{ .LeaseID }}","lease_duration":{{ .LeaseDuration }}}
+          {{- end }}
+        vault.hashicorp.com/agent-inject-secret-jwt-key: "secret/data/jwt"
+        vault.hashicorp.com/agent-inject-template-jwt-key: |
+          {{- with secret "secret/data/jwt" -}}
+          {{ . | toJSON }}
+          {{- end }}
+        vault.hashicorp.com/template-static-secret-render-interval: "30s"
+        vault.hashicorp.com/agent-inject-file-db-creds: "db-creds"
+        vault.hashicorp.com/agent-inject-file-jwt-key: "jwt-key"
+    spec:
+      serviceAccountName: vault-auth-demo
+      containers:
+        - name: app
+          image: ghcr.io/argadepp/vault-auth-demo:latest
+          imagePullPolicy: Always
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: https, containerPort: 8443}
+          env:
+            - {name: VAULT_AUTH_MODE, value: agent}
+            - {name: VAULT_ADDR, value: "http://vault.vault.svc:8200"}
+            - {name: VAULT_ROLE, value: vault-auth-demo}
+            - {name: DB_SECRET_FILE, value: /vault/secrets/db-creds}
+            - {name: JWT_SECRET_FILE, value: /vault/secrets/jwt-key}
+            - {name: PGHOST, value: postgres.demo.svc}
+            - {name: PGDATABASE, value: appdb}
+          volumeMounts:
+            - {name: tls, mountPath: /tls, readOnly: true}
+          readinessProbe:
+            httpGet: {path: /health, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: tls
+          secret:
+            secretName: vault-auth-demo-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-auth-demo
+  namespace: demo
+spec:
+  selector: {app: vault-auth-demo}
+  ports:
+    - {name: http, port: 8080, targetPort: 8080}
+    - {name: https, port: 8443, targetPort: 8443}
