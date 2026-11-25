@@ -1,0 +1,21 @@
+global:
+  enabled: true
+
+server:
+  dev:
+    enabled: true
+    devRootToken: "root"
+  dataStorage:
+    enabled: false
+  standalone:
+    enabled: false
+
+ui:
+  enabled: true
+  serviceType: ClusterIP
+
+injector:
+  enabled: true
+  replicas: 1
+  certs:
+    secretName: ""
