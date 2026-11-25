@@ -27,7 +27,7 @@ spec:
         vault.hashicorp.com/agent-inject-secret-jwt-key: "secret/data/jwt"
         vault.hashicorp.com/agent-inject-template-jwt-key: |
           {{- with secret "secret/data/jwt" -}}
-          {{ . | toJSON }}
+          {"data":{"data":{"signing_key":"{{ .Data.data.signing_key }}"}}}
           {{- end }}
         vault.hashicorp.com/template-static-secret-render-interval: "30s"
         vault.hashicorp.com/agent-inject-file-db-creds: "db-creds"
@@ -66,7 +66,8 @@ metadata:
   name: vault-auth-demo
   namespace: demo
 spec:
-  selector: {app: vault-auth-demo}
+  selector:
+    app: vault-auth-demo
   ports:
     - {name: http, port: 8080, targetPort: 8080}
     - {name: https, port: 8443, targetPort: 8443}
