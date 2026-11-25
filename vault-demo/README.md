@@ -11,9 +11,9 @@ The application obtains a database username/password from Vault through Kubernet
 ```text
 Browser / curl
     |
-    +--> http://vault.local --> Traefik --> Vault UI service --> Vault Pod
+    +--> http://vault.local:8080 --> Traefik --> Vault UI service --> Vault Pod
     |
-    +--> http://app.local   --> Traefik --> app-service --> FastAPI Pod
+    +--> http://app.local:8080   --> Traefik --> app-service --> FastAPI Pod
                                                    |
                                                    | reads /vault/secrets/db-creds
                                                    v
@@ -30,7 +30,7 @@ Browser / curl
 ## Repository contents
 
 - `app/`: FastAPI application and Dockerfile.
-- `k8s/`: application namespace, ServiceAccount, Deployment, Service and Ingress.
+- `k8s/`: application namespace, ServiceAccount, Deployment, Service and both Ingress manifests.
 - `vault/`: local Helm values, KV policy and Vault setup script.
 - `.github/workflows/vault-demo-image.yml`: builds the application image and publishes it to GHCR.
 
@@ -41,7 +41,7 @@ Vault itself uses the official HashiCorp Helm chart and image. Only the sample F
 - Docker Engine (Docker Desktop is not required).
 - K3d, kubectl and Helm.
 - Git and access to this repository.
-- Ports 80 and 443 available on the local machine. The commands below map HTTP 8080 and HTTPS 8443 instead.
+- Host port 8080 available.
 - A GitHub account with GitHub Packages enabled to publish the application image.
 
 Examples below are for Linux/WSL shell. Run them from the repository root unless specified.
@@ -54,8 +54,7 @@ If you already have a suitable K3d cluster, you can use it and skip cluster crea
 k3d cluster create vault-poc \
   --servers 1 \
   --agents 1 \
-  -p "8080:80@loadbalancer" \
-  -p "8443:443@loadbalancer"
+  -p "8080:80@loadbalancer"
 kubectl config use-context k3d-vault-poc
 kubectl get nodes
 ```
@@ -66,8 +65,6 @@ K3s includes Traefik by default. Confirm it is running:
 kubectl get pods -n kube-system
 kubectl get svc -n kube-system traefik
 ```
-
-If Traefik was disabled in your cluster, install/configure an Ingress controller before continuing.
 
 ## 2. Install Vault and the Injector
 
@@ -83,18 +80,20 @@ helm upgrade --install vault hashicorp/vault \
   --wait --timeout 5m
 ```
 
-Wait for the server and injector:
+Check the server and injector:
 
 ```bash
 kubectl get pods -n vault
 kubectl get svc -n vault
 ```
 
-The demo values enable Vault dev mode, UI and Injector. Dev mode starts an unsealed in-memory Vault using root token `root`. Data is lost if the Vault Pod is recreated. For this lab, the setup script configures Vault after installation.
+The official chart enables the server auth-delegator binding by default, which grants the Vault server ServiceAccount the permission needed for Kubernetes token reviews. The chart-created Vault ServiceAccount is used by the Vault Pod. See the chart documentation linked below.
 
-## 3. Configure local hostnames
+The demo values enable Vault dev mode, UI and Injector. Dev mode starts an unsealed in-memory Vault using root token `root`. Data is lost if the Vault Pod is recreated. This is only for this isolated lab.
 
-Add these lines to your hosts file:
+## 3. Configure local hostnames and Ingress
+
+Add these entries to your hosts file:
 
 Linux/WSL: `/etc/hosts`  
 Windows: `C:\\Windows\\System32\\drivers\\etc\\hosts`
@@ -104,12 +103,18 @@ Windows: `C:\\Windows\\System32\\drivers\\etc\\hosts`
 127.0.0.1 app.local
 ```
 
-Ingress listens through the K3d load balancer on host port 8080. Open:
+Apply the Vault UI Ingress now:
+
+```bash
+kubectl apply -f vault-demo/k8s/vault-ingress.yaml
+```
+
+Open:
 
 - Vault UI: http://vault.local:8080
-- Application: http://app.local:8080
+- Application: http://app.local:8080 (after the application is deployed)
 
-If local host resolution is inconvenient, use port-forwarding instead:
+For direct Vault access without Ingress:
 
 ```bash
 kubectl port-forward -n vault svc/vault-ui 8200:8200
@@ -121,26 +126,19 @@ Then browse to http://localhost:8200. Login with token `root`.
 
 The setup script enables KV v2, creates a demo database credential, creates a read-only policy, enables Kubernetes auth, configures the Kubernetes API connection and binds the policy to the application's ServiceAccount.
 
-Run:
+Run from the repository root:
 
 ```bash
 chmod +x vault-demo/vault/configure-vault.sh
 ./vault-demo/vault/configure-vault.sh
 ```
 
+The script reads the Kubernetes ServiceAccount token and CA from the Vault Pod's mounted ServiceAccount files. It does not put the Vault root token in an application manifest.
+
 The demo secret is deliberately fake:
 
 - Username: `demo-user`
 - Password: `demo-password-change-me`
-
-The script reads the Kubernetes ServiceAccount token and CA from the Vault Pod's mounted ServiceAccount files. It does not put the Vault root token in an application manifest.
-
-Verify the secret path and policy:
-
-```bash
-kubectl exec -n vault vault-0 -- env VAULT_ADDR=http://127.0.0.1:8200 \
-  vault kv get secret/demo/database
-```
 
 The policy permits read access only to `secret/data/demo/database`.
 
@@ -155,17 +153,14 @@ ghcr.io/<github-owner>/vault-demo-app:latest
 
 The workflow uses the repository's built-in `GITHUB_TOKEN` and `packages: write` permission. No personal access token is required for the normal workflow.
 
-To trigger it, push a change under `vault-demo/**` to `master`, or open Actions and run **Build and publish Vault demo app** manually. When using a fork or a package with restricted access, ensure the package/repository visibility settings allow your Kubernetes cluster to pull the image.
+To trigger it, push a change under `vault-demo/**` to `master`, or open Actions and run **Build and publish Vault demo app** manually. Pull requests run a build without publishing.
+
+After the first successful push, check the package under your GitHub profile's **Packages** tab. Make the package public for this local lab, or configure an imagePullSecret in namespace `demo` if the package is private.
 
 For a local build instead:
 
 ```bash
 docker build -t vault-demo-app:local vault-demo/app
-```
-
-To load the locally built image into K3d:
-
-```bash
 k3d image import vault-demo-app:local -c vault-poc
 ```
 
@@ -173,9 +168,7 @@ If using a different cluster name, change `vault-poc` accordingly.
 
 ## 6. Deploy the application
 
-For GHCR, edit `vault-demo/k8s/deployment.yaml` and replace the example image with the published image tag. For a public package, no imagePullSecret is required. For a private package, create an imagePullSecret in namespace `demo` and attach it to the Pod's `imagePullSecrets`.
-
-For local image use, set `image: vault-demo-app:local` and `imagePullPolicy: IfNotPresent`.
+For GHCR, edit `vault-demo/k8s/deployment.yaml` and replace the example image with the published image tag. For local image use, set `image: vault-demo-app:local` and `imagePullPolicy: IfNotPresent`.
 
 Apply:
 
@@ -189,7 +182,7 @@ kubectl rollout status deployment/vault-demo-app -n demo
 kubectl get pods,svc,ingress -n demo
 ```
 
-The Deployment annotation `vault.hashicorp.com/agent-inject: "true"` enables the Injector. Other annotations specify the Vault role and the template to write to `/vault/secrets/db-creds`.
+The Deployment annotation `vault.hashicorp.com/agent-inject: "true"` enables the Injector. Other annotations specify the Vault role and template to write to `/vault/secrets/db-creds`.
 
 ## 7. Test secret consumption
 
@@ -201,7 +194,7 @@ curl http://app.local:8080/health
 curl http://app.local:8080/secret-status
 ```
 
-The application returns the secret username and indicates whether the password was loaded, but **never returns the password**.
+The application reports the secret username and whether a password was loaded, but **never returns the password**.
 
 Inspect the injected file from the application Pod:
 
@@ -210,7 +203,7 @@ POD=$(kubectl get pod -n demo -l app=vault-demo-app -o jsonpath='{.items[0].meta
 kubectl exec -n demo "$POD" -c app -- cat /vault/secrets/db-creds
 ```
 
-The Pod will normally have an application container and a Vault Agent sidecar. Check:
+The Pod normally has an application container and a Vault Agent sidecar. Check:
 
 ```bash
 kubectl describe pod -n demo "$POD"
@@ -227,7 +220,7 @@ kubectl exec -n vault vault-0 -- env VAULT_ADDR=http://127.0.0.1:8200 \
   vault kv put secret/demo/database username=demo-user-v2 password=demo-password-v2
 ```
 
-The Vault Agent template periodically re-renders the file. Wait for the configured refresh interval, then inspect the injected file again. The demo application reads the file on each `/secret-status` request, so it can observe the updated username without rebuilding the image or restarting the Pod.
+The Vault Agent template periodically re-renders the file. Wait for its refresh interval, then inspect the injected file again. The application reads the file on each `/secret-status` request, so it can observe the updated username without rebuilding the image or restarting the Pod.
 
 ## 9. Troubleshooting
 
@@ -243,17 +236,18 @@ kubectl describe pod -n demo -l app=vault-demo-app
 Common causes:
 
 - Injector webhook unavailable: ensure the injector Pod and Service are ready.
-- Vault auth failure: validate the Kubernetes auth configuration, ServiceAccount token, role namespace/name and policy.
-- Secret file missing: inspect Vault Agent logs and the Pod annotations.
+- Vault auth failure: validate Kubernetes auth configuration, ServiceAccount token, role namespace/name and policy.
+- Secret file missing: inspect Vault Agent logs and Pod annotations.
 - ImagePullBackOff: check image name/tag and package visibility or imagePullSecret.
-- Ingress not reachable: check Traefik, K3d port mappings, hosts file and host port 8080.
+- Ingress not reachable: check Traefik, K3d port mapping, hosts file and host port 8080.
 
 ## 10. Clean up
 
-Remove application resources:
+Remove application resources and Vault UI Ingress:
 
 ```bash
 kubectl delete -f vault-demo/k8s/ingress.yaml --ignore-not-found
+kubectl delete -f vault-demo/k8s/vault-ingress.yaml --ignore-not-found
 kubectl delete -f vault-demo/k8s/service.yaml --ignore-not-found
 kubectl delete -f vault-demo/k8s/deployment.yaml --ignore-not-found
 kubectl delete -f vault-demo/k8s/serviceaccount.yaml --ignore-not-found
@@ -275,7 +269,7 @@ k3d cluster delete vault-poc
 
 ## Security notes and next steps
 
-This POC intentionally uses Vault dev mode, HTTP inside the isolated local cluster, and a demo credential. It is not production-ready.
+This POC intentionally uses Vault dev mode, HTTP inside an isolated local cluster, and a demo credential. It is not production-ready.
 
 For a production-style follow-up:
 
@@ -286,3 +280,10 @@ For a production-style follow-up:
 5. Avoid exposing Vault UI publicly; restrict it to trusted operators.
 6. Use GHCR package access controls and immutable image digests.
 7. Add secret rotation, audit devices and monitoring.
+
+## References
+
+- [Vault Helm chart](https://github.com/hashicorp/vault-helm)
+- [Vault Kubernetes auth method](https://developer.hashicorp.com/vault/docs/auth/kubernetes)
+- [Vault Agent Injector](https://developer.hashicorp.com/vault/docs/platform/k8s/injector)
+- [K3d](https://k3d.io/)
