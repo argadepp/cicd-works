@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 BASE=${BASE:-http://localhost:18080}
+echo "0) Negative Kubernetes authentication test: an unbound ServiceAccount must be denied"
+kubectl create serviceaccount no-vault-access -n demo --dry-run=client -o yaml | kubectl apply -f -
+UNBOUND_JWT=$(kubectl create token no-vault-access -n demo --audience=vault --duration=10m)
+if kubectl exec -n vault vault-0 -- env VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=root vault write auth/kubernetes/login role=vault-auth-demo jwt="$UNBOUND_JWT" >/dev/null 2>&1; then
+  echo "ERROR: unbound ServiceAccount unexpectedly authenticated"; exit 1
+else
+  echo "PASS: unbound ServiceAccount rejected by Vault Kubernetes auth"
+fi
 echo "1) Valid database authentication through the app (Agent mode)"
 curl -fsS "$BASE/db/check"; echo
 echo "2) Obtain a 2-minute dynamic DB lease and prove it works"
