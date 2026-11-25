@@ -1,0 +1,20 @@
+server:
+  dev:
+    enabled: true
+    devRootToken: "root"
+  dataStorage:
+    enabled: false
+  service:
+    enabled: true
+  auditStorage:
+    enabled: false
+ui:
+  enabled: true
+injector:
+  enabled: true
+  authPath: auth/kubernetes
+  agentImage:
+    repository: hashicorp/vault
+    tag: 1.18.3
+global:
+  tlsDisable: true

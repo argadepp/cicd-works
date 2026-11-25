@@ -1,0 +1,1 @@
+Run `./vault-auth-poc/tests/test-auth.sh` with an HTTP port-forward active. The script includes a 2-minute credential expiry wait, explicit Vault lease revocation, JWT positive/negative/expiry checks, and mTLS positive/negative checks. Run `./vault-auth-poc/tests/test-sdk-mode.sh` to switch the app to direct hvac SDK authentication.
